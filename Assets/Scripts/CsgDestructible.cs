@@ -38,8 +38,8 @@ public class CsgDestructible : MonoBehaviour
 
     private void buildBspTree()
     {
-        int[] triangles = cubic.GetComponent<MeshFilter>().mesh.triangles;
-        Vector3[] vector3 = cubic.GetComponent<MeshFilter>().mesh.vertices;
+        //int[] triangles = cubic.GetComponent<MeshFilter>().mesh.triangles;
+        //Vector3[] vector3 = cubic.GetComponent<MeshFilter>().mesh.vertices;
     }
 }
 
@@ -53,6 +53,6 @@ class BspTree
         ArrayList tmp;
     }
 
-    Node[]  nodes = new Node {};
-    Plane[] planes = new Plane { };
+    Node[]  nodes = new Node[] {};
+    Plane[] planes = new Plane[] { };
 }
