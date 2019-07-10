@@ -177,7 +177,56 @@ class BspTree
         return new Plane(new Vector3(0,1,0), 0);
     }
 
+    void classifyTriangles(List<Triangle> triangleList,Plane splittingPlane,
+           List<Triangle> trianglesInFront, List<Triangle> trianglesBehind, List<Triangle> splitTriangles)
+    {
+        int countOfTriangles = triangleList.Count;
+        short classify = -1; // -1 - on plane; 0- in Front; 1 - Behind; 2 -splitted
+        for (int i=0;i<countOfTriangles;i++)
+        {
+            classify = checkTriangle(triangleList[i],splittingPlane);
+            if (classify == 0)
+                trianglesInFront.Add(triangleList[i]);
+            else
+            {
+                if (classify == 1)
+                    trianglesBehind.Add(triangleList[i]);
+                else
+                {
+                    if (classify == 2)
+                        splitTriangles.Add(triangleList[i]);
+                }
+            }
+              
+        }
+    }
 
+    private short checkTriangle(Triangle triangle,Plane splittingPlane)
+    {
+        Vector3 pointA = triangle.pointA;
+        Vector3 pointB = triangle.pointB;
+        Vector3 pointC = triangle.pointC;
+        bool resA,resB,resC;
+        //
+        if (splittingPlane.GetDistanceToPoint(pointA) == 0 && splittingPlane.GetDistanceToPoint(pointB) == 0 && splittingPlane.GetDistanceToPoint(pointC) == 0)
+            return -1;
+        else
+        {
+            resA = splittingPlane.GetSide(pointA);
+            resB = splittingPlane.GetSide(pointB);
+            resC = splittingPlane.GetSide(pointC);
+            if (resA == resB && resA == resC)
+            {
+                if (resA)
+                    return 0;//in front
+                else
+                    return 1;//Behind
+            }
+            else
+                return 2; // splitted
+        }
+        
+    }
     private int createNewNode()
     {
         var newNodeIndex = nodes.Count;
