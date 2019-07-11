@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 public class CsgDestructible : MonoBehaviour
@@ -67,7 +68,7 @@ class BspTree
         public int planeIndex;
         public int frontChild;
         public int backChild;
-        public ArrayList tmp;
+        public List<Face> faces;    /// convex polygons lying on this node's plane
     }
 
     List<Node>  nodes = new List<Node>();
@@ -84,12 +85,57 @@ class BspTree
         public Vector3 pointC;
     }
 
+    struct Face
+    {
+        public List<Vector3> vertices;
+    }
+
+    /// Denotes a relation of a polygon/surface to some splitting plane;
+    /// used when classifying polygons/surfaces when building BSP trees.
+    /// Don't change the values - they are used as bit-masks / 'OR' ops.
+    enum EPlaneSide
+    {
+        On = 0x0,	//!< The polygon is lying on the plane.
+        Back = 0x1,	//!< The polygon is lying in back of the plane ('below', 'behind').
+        Front = 0x2,	//!< The polygon is lying in front of the plane ('above', 'over').
+        Split = 0x3,	//!< The polygon intersects with the plane ('spanning' the plane).
+    };
+
+    static float CLIP_EPSILON = 0.001f;
+
+    ///
+    static EPlaneSide ClassifyPoint(Vector3 point, Plane plane, float epsilon)
+    {
+        float d = plane.GetDistanceToPoint(point);
+        return (d > +epsilon) ? EPlaneSide.Front : (d < -epsilon) ? EPlaneSide.Back : EPlaneSide.On;
+    }
+
     public void buildFromMesh(Mesh mesh)
     {
-        var triangleList = buildTriangleListFromMesh(mesh);
+        debugPrintMesh(mesh);
 
-        var rootNodeIndex = createNodeFromTriangleList_Recursive(triangleList);
+        var faceList = buildFaceListFromMesh(mesh);
+
+        var rootNodeIndex = createNodeFromFaceList_Recursive(faceList);
         Debug.Assert(rootNodeIndex == 0, "The root node must have zero index!");
+
+        debugPrint();
+    }
+
+    private void debugPrintMesh(Mesh mesh)
+    {
+        var numVertices= mesh.vertices.Length;
+        Debug.LogFormat("Mesh has {0} vertices", numVertices);
+
+        for(int i = 0; i < numVertices; i++)
+        {
+            Debug.LogFormat("[{0}]: {1}", i, mesh.vertices[i]);
+        }
+    }
+
+    public void debugPrint()
+    {
+        Debug.LogFormat("{0} nodes, {0} planes", nodes.Count, planes.Count);
     }
 
     private List<Triangle> buildTriangleListFromMesh(Mesh mesh)
@@ -122,39 +168,79 @@ class BspTree
         return triangleList;
     }
 
-    private int createNodeFromTriangleList_Recursive(List<Triangle> triangleList)
+    private List<Face> buildFaceListFromMesh(Mesh mesh)
     {
-        int splittingPlaneIndex = pickSplittingPlane(triangleList);
+        int[] triangles = mesh.triangles;
+        Vector3[] vertices = mesh.vertices;
 
-        Triangle splittingTriangle = triangleList[splittingPlaneIndex];
-        Plane splittingPlane = createPlaneFromTriangle(splittingTriangle);
+        var faceList = new List<Face>();
 
-        var trianglesInFront = new List<Triangle>();
-        var trianglesBehind = new List<Triangle>();
-        var splitTriangles = new List<Triangle>();
-        classifyTriangles(triangleList, splittingPlane,
-            trianglesInFront, trianglesBehind, splitTriangles);
+        var numTriangles = triangles.Length / 3;
+        for (int triangleIndex = 0; triangleIndex < numTriangles; triangleIndex++)
+        {
+            var i0 = triangles[triangleIndex + 0];
+            var i1 = triangles[triangleIndex + 1];
+            var i2 = triangles[triangleIndex + 2];
+
+            var v0 = vertices[i0];
+            var v1 = vertices[i1];
+            var v2 = vertices[i2];
+
+            //
+            var newFace = new Face();
+
+            var reservedCount = 8;  // to reduce (re-)allocations
+            newFace.vertices = new List<Vector3>(reservedCount);
+            newFace.vertices.Add(v0);
+            newFace.vertices.Add(v1);
+            newFace.vertices.Add(v2);
+
+            faceList.Add(newFace);
+        }
+
+        Debug.LogFormat("Created {0} faces.", numTriangles);
+
+        return faceList;
+    }
+
+    private int createNodeFromFaceList_Recursive(List<Face> faceList)
+    {
+        int splittingPlaneIndex = pickSplittingPlane(faceList);
+
+        Face splittingFace = faceList[splittingPlaneIndex];
+        Plane splittingPlane = createPlaneFromFace(splittingFace);
+
+        var facesOnPlane = new List<Face>();
+        var facesInFront = new List<Face>();
+        var facesBehind = new List<Face>();
+        
+        splitFacesByPlane(faceList, splittingPlane,
+            facesOnPlane, facesInFront, facesBehind);
+        
         //
         int newNodeIndex = createNewNode();
         
         nodes[newNodeIndex].planeIndex = splittingPlaneIndex;
+        nodes[newNodeIndex].faces = facesOnPlane;
 
-        if(trianglesInFront.Count == 0)
+        //
+        if(facesInFront.Count == 0)
         {
             nodes[newNodeIndex].frontChild = EMPTY_LEAF_INDEX;
         }
         else
         {
-            nodes[newNodeIndex].frontChild = createNodeFromTriangleList_Recursive(trianglesInFront);
+            nodes[newNodeIndex].frontChild = createNodeFromFaceList_Recursive(facesInFront);
         }
 
-        if(trianglesBehind.Count == 0)
+        //
+        if(facesBehind.Count == 0)
         {
             nodes[newNodeIndex].frontChild = SOLID_LEAF_INDEX;
         }
         else
         {
-            nodes[newNodeIndex].frontChild = createNodeFromTriangleList_Recursive(trianglesInFront);
+            nodes[newNodeIndex].frontChild = createNodeFromFaceList_Recursive(facesBehind);
         }
 
         return newNodeIndex;
@@ -163,70 +249,242 @@ class BspTree
     /// <summary>
     ///  returns the (unique) index of the splitting plane
     /// </summary>
-    /// <param name="triangleList"></param>
+    /// <param name="faceList"></param>
     /// <returns></returns>
-    private int pickSplittingPlane(List<Triangle> triangleList)
+    private int pickSplittingPlane(List<Face> faceList)
     {
-        //
-        return 0;
+        // pick the first one. assume that the object is convex.
+        var newPlaneIndex = planes.Count;
+
+        var newPlane = createPlaneFromFace(faceList.First());
+        planes.Add(newPlane);
+
+        return newPlaneIndex;
     }
 
-    private Plane createPlaneFromTriangle(Triangle splittingTriangle)
+    private Plane createPlaneFromFace(Face face)
     {
+        var numVertices = face.vertices.Count;
         //
-        return new Plane(new Vector3(0,1,0), 0);
-    }
-
-    void classifyTriangles(List<Triangle> triangleList,Plane splittingPlane,
-           List<Triangle> trianglesInFront, List<Triangle> trianglesBehind, List<Triangle> splitTriangles)
-    {
-        int countOfTriangles = triangleList.Count;
-        short classify = -1; // -1 - on plane; 0- in Front; 1 - Behind; 2 -splitted
-        for (int i=0;i<countOfTriangles;i++)
+        var faceCenter = Vector3.zero;
+        foreach (Vector3 vertex in face.vertices)
         {
-            classify = checkTriangle(triangleList[i],splittingPlane);
-            if (classify == 0)
-                trianglesInFront.Add(triangleList[i]);
-            else
+            faceCenter += vertex;
+        }
+        faceCenter /= numVertices;
+
+        //
+        var planeNormal = Vector3.zero;
+
+        var previousVertex = face.vertices[numVertices - 1];
+        for (int i = 0; i < numVertices; i++)
+        {
+            var currentVertex = face.vertices[i];
+
+            var relV0 = previousVertex - faceCenter;
+            var relV1 = currentVertex - faceCenter;
+
+            planeNormal += Vector3.Cross(relV0, relV1);
+        }
+
+        planeNormal = planeNormal.normalized;
+
+        //
+        return new Plane(planeNormal, faceCenter);
+    }
+
+    /// <summary>
+    /// partitions the given set of planes by the plane
+    /// </summary>
+    /// <param name="faceList"></param>
+    /// <param name="splittingPlane"></param>
+    /// <param name="facesOnPlane"></param>
+    /// <param name="facesInFront"></param>
+    /// <param name="facesBehind"></param>
+    /// <param name="splitFaces"></param>
+    void splitFacesByPlane(List<Face> faceList, Plane splittingPlane,
+           List<Face> facesOnPlane, List<Face> facesInFront, List<Face> facesBehind)
+    {
+        foreach (Face face in faceList)
+        {
+            Face backFace, frontFace;
+            var planeSide = splitFaceByPlane(face, splittingPlane, out backFace, out frontFace);
+
+            switch (planeSide)
             {
-                if (classify == 1)
-                    trianglesBehind.Add(triangleList[i]);
-                else
+                case EPlaneSide.On:
+                    facesOnPlane.Add(face);
+                    break;
+
+                case EPlaneSide.Back:
+                    facesBehind.Add(backFace);
+                    break;
+
+                case EPlaneSide.Front:
+                    facesInFront.Add(frontFace);
+                    break;
+
+                case EPlaneSide.Split:
+                    facesBehind.Add(backFace);
+                    facesInFront.Add(frontFace);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Splits the face in a back and front part.
+    /// </summary>
+    /// <param name="face"></param>
+    /// <param name="splittingPlane"></param>
+    /// <returns></returns>
+    private EPlaneSide splitFaceByPlane(
+        Face face
+        , Plane splittingPlane
+        , out Face frontFace_, out Face backFace_
+        , float epsilon = 1e-3f//CLIP_EPSILON
+        )
+    {
+        var numVertices = face.vertices.Count;
+
+        var dists = new float[numVertices + 1];
+        var sides = new EPlaneSide[numVertices + 1];
+
+        // First, classify all points. This allows us to avoid any bisection if possible
+        var counts = new int[3]; // 'on', 'back' and 'front'
+        var faceStatus = (int)EPlaneSide.On;
+
+        // determine sides for each point
+        for (int i = 0; i < numVertices; i++)
+        {
+            var vertex = face.vertices[i];
+            var d = splittingPlane.GetDistanceToPoint(vertex);
+            dists[i] = d;
+            var side = (d > +epsilon)
+                                    ? EPlaneSide.Front
+                                    : (d < -epsilon) ? EPlaneSide.Back : EPlaneSide.On;
+            sides[i] = side;
+            faceStatus |= (int)side;
+            counts[(int)side]++;
+        }
+        sides[numVertices] = sides[0];
+        dists[numVertices] = dists[0];
+
+        //
+        if (faceStatus != (int)EPlaneSide.Split)
+        {
+            backFace_ = face;
+            frontFace_ = face;
+            return (EPlaneSide)faceStatus;
+        }
+        Debug.DebugBreak();//AAA
+        // Straddles the splitting plane - we must clip.
+
+        //mxBIBREF("'float-Time Collision Detection' by Christer Ericson (2005), 8.3.4 Splitting Polygons Against a Plane, PP.369-373");
+
+        var MAX_VERTS = 32;
+
+        var backVerts = new Vector3[MAX_VERTS];
+        var frontVerts = new Vector3[MAX_VERTS];
+
+        var numFront = 0;
+        var numBack = 0;
+
+
+        // Test all edges (a, b) starting with edge from last to first Vector3
+        Vector3 vA = face.vertices[numVertices - 1];
+        float distA = dists[numVertices - 1];
+        EPlaneSide sideA = sides[numVertices - 1];
+
+        // Loop over all edges given by Vector3 pair (n - 1, n)
+        for (int i = 0; i < numVertices; i++)
+        {
+            Vector3 vB = face.vertices[i];
+            float distB = dists[i];
+            EPlaneSide sideB = sides[i];
+            if (sideB == EPlaneSide.Front)
+            {
+                if (sideA == EPlaneSide.Back)
                 {
-                    if (classify == 2)
-                        splitTriangles.Add(triangleList[i]);
+                    // Edge (a, b) straddles, output intersection point to both sides
+                    // always calculate the split going from the same side or minor epsilon issues can happen
+                    Vector3 v = getIntersectionPoint(vB, vA, distB, distA);
+                    Debug.Assert(classifyPoint(v, splittingPlane, epsilon) == EPlaneSide.On);
+                    frontVerts[numFront++] = backVerts[numBack++] = v;
                 }
+                // In all three cases, output b to the front side
+                frontVerts[numFront++] = vB;
             }
-              
-        }
-    }
-
-    private short checkTriangle(Triangle triangle,Plane splittingPlane)
-    {
-        Vector3 pointA = triangle.pointA;
-        Vector3 pointB = triangle.pointB;
-        Vector3 pointC = triangle.pointC;
-        bool resA,resB,resC;
-        //
-        if (splittingPlane.GetDistanceToPoint(pointA) == 0 && splittingPlane.GetDistanceToPoint(pointB) == 0 && splittingPlane.GetDistanceToPoint(pointC) == 0)
-            return -1;
-        else
-        {
-            resA = splittingPlane.GetSide(pointA);
-            resB = splittingPlane.GetSide(pointB);
-            resC = splittingPlane.GetSide(pointC);
-            if (resA == resB && resA == resC)
+            else if (sideB == EPlaneSide.Back)
             {
-                if (resA)
-                    return 0;//in front
-                else
-                    return 1;//Behind
+                if (sideA == EPlaneSide.Front)
+                {
+                    // Edge (a, b) straddles plane, output intersection point
+                    Vector3 v = getIntersectionPoint(vA, vB, distA, distB);
+                    Debug.Assert(classifyPoint(v, splittingPlane, epsilon) == EPlaneSide.On);
+                    frontVerts[numFront++] = backVerts[numBack++] = v;
+                }
+                else if (sideA == EPlaneSide.On)
+                {
+                    // Output a when edge (a, b) goes from ‘on’ to ‘behind’ plane
+                    backVerts[numBack++] = vA;
+                }
+                // In all three cases, output b to the back side
+                backVerts[numBack++] = vB;
             }
             else
-                return 2; // splitted
+            {
+                // b is on the plane. In all three cases output b to the front side
+                frontVerts[numFront++] = vB;
+                // In one case, also output b to back side
+                if (sideA == EPlaneSide.Back)
+                    backVerts[numBack++] = vB;
+            }
+            // Keep b as the starting point of the next edge
+            vA = vB;
+            distA = distB;
+            sideA = sideB;
         }
-        
+
+        //
+        frontFace_ = new Face();
+        frontFace_.vertices = frontVerts.ToList();
+
+        backFace_ = new Face();
+        backFace_.vertices = backVerts.ToList();
+
+        Debug.Assert(faceStatus == (int)EPlaneSide.Split);
+        return EPlaneSide.Split;
     }
+
+    static
+        EPlaneSide classifyPoint(Vector3 point, Plane plane, float epsilon)
+    {
+        var d = plane.GetDistanceToPoint(point);
+        return (d > +epsilon)
+                                ? EPlaneSide.Front
+                                : (d < -epsilon) ? EPlaneSide.Back : EPlaneSide.On;
+    }
+
+
+    /// NOTE: for consistency (to prevent minor epsilon issues)
+    /// the point 'a' must always be in front of the plane, the point 'a' - behind the plane,
+    /// i.e. 'distA' must always be > 0, and 'distB' must always be < 0.
+    static
+    Vector3 getIntersectionPoint(
+                          Vector3 a, Vector3 b,
+                          float distA, float distB
+                           )
+    {
+        // always calculate the split going from the same side or minor epsilon issues can happen
+        //mxASSERT(distA > 0 && distB < 0);
+
+        float fraction = distA / (distA - distB);
+        return Vector3.Lerp(a, b, fraction);
+        //interpolatedVertex.xyz = a.xyz + (b.xyz - a.xyz) * fraction;
+    }
+
+
     private int createNewNode()
     {
         var newNodeIndex = nodes.Count;
