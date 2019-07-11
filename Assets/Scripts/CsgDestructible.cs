@@ -57,7 +57,7 @@ public class CsgDestructible : MonoBehaviour
 
         bspTree = new BspTree();
 
-        bspTree.buildFromMesh(mesh);
+        bspTree.buildFromMesh(mesh, transform);
     }
 }
 
@@ -85,7 +85,7 @@ class BspTree
         public Vector3 pointC;
     }
 
-    struct Face
+    class Face
     {
         public List<Vector3> vertices;
     }
@@ -110,11 +110,11 @@ class BspTree
         return (d > +epsilon) ? EPlaneSide.Front : (d < -epsilon) ? EPlaneSide.Back : EPlaneSide.On;
     }
 
-    public void buildFromMesh(Mesh mesh)
+    public void buildFromMesh(Mesh mesh, Transform localToWorldTransform)
     {
-        debugPrintMesh(mesh);
+        //debugPrintMesh(mesh);
 
-        var faceList = buildFaceListFromMesh(mesh);
+        var faceList = buildFaceListFromMesh(mesh, localToWorldTransform);
 
         var rootNodeIndex = createNodeFromFaceList_Recursive(faceList);
         Debug.Assert(rootNodeIndex == 0, "The root node must have zero index!");
@@ -168,11 +168,22 @@ class BspTree
         return triangleList;
     }
 
-    private List<Face> buildFaceListFromMesh(Mesh mesh)
+    private List<Face> buildFaceListFromMesh(Mesh mesh, Transform localToWorldTransform)
     {
         int[] triangles = mesh.triangles;
         Vector3[] vertices = mesh.vertices;
 
+        //
+        var numVertices = triangles.Length / 3;
+        Vector3[] transformedVertices = new Vector3[numVertices];
+
+        for (int i = 0; i < numVertices; i++)
+        {
+            transformedVertices[i] = localToWorldTransform.TransformPoint(vertices[i]);
+            Debug.LogFormat("Vertex[{0}]: {1}", i, transformedVertices[i]);
+        }
+
+        //
         var faceList = new List<Face>();
 
         var numTriangles = triangles.Length / 3;
@@ -181,7 +192,7 @@ class BspTree
             var i0 = triangles[triangleIndex + 0];
             var i1 = triangles[triangleIndex + 1];
             var i2 = triangles[triangleIndex + 2];
-
+            //AAA
             var v0 = vertices[i0];
             var v1 = vertices[i1];
             var v2 = vertices[i2];
@@ -209,14 +220,15 @@ class BspTree
 
         Face splittingFace = faceList[splittingPlaneIndex];
         Plane splittingPlane = createPlaneFromFace(splittingFace);
+        Debug.LogFormat("createNode: plane:{0} = {1}", splittingPlaneIndex, splittingPlane);
 
-        var facesOnPlane = new List<Face>();
-        var facesInFront = new List<Face>();
-        var facesBehind = new List<Face>();
+        List<Face> facesOnPlane;
+        List<Face> facesInFront;
+        List<Face> facesBehind;
         
         splitFacesByPlane(faceList, splittingPlane,
-            facesOnPlane, facesInFront, facesBehind);
-        
+            out facesOnPlane, out facesInFront, out facesBehind);
+
         //
         int newNodeIndex = createNewNode();
         
@@ -236,11 +248,11 @@ class BspTree
         //
         if(facesBehind.Count == 0)
         {
-            nodes[newNodeIndex].frontChild = SOLID_LEAF_INDEX;
+            nodes[newNodeIndex].backChild = SOLID_LEAF_INDEX;
         }
         else
         {
-            nodes[newNodeIndex].frontChild = createNodeFromFaceList_Recursive(facesBehind);
+            nodes[newNodeIndex].backChild = createNodeFromFaceList_Recursive(facesBehind);
         }
 
         return newNodeIndex;
@@ -280,7 +292,7 @@ class BspTree
         for (int i = 0; i < numVertices; i++)
         {
             var currentVertex = face.vertices[i];
-
+ Debug.LogWarningFormat("Vertx[{0}]: {1}", i, currentVertex);
             var relV0 = previousVertex - faceCenter;
             var relV1 = currentVertex - faceCenter;
 
@@ -289,8 +301,18 @@ class BspTree
 
         planeNormal = planeNormal.normalized;
 
+        var plane = new Plane(planeNormal, faceCenter);
+        Debug.LogWarningFormat("Plane:{0}", plane);
+
+        for (int i = 0; i < numVertices; i++)
+        {
+            var currentVertex = face.vertices[i];
+            var pointRelation = classifyPoint(currentVertex, plane, CLIP_EPSILON);
+            Debug.Assert(pointRelation == EPlaneSide.On);
+        }
+
         //
-        return new Plane(planeNormal, faceCenter);
+        return plane;
     }
 
     /// <summary>
@@ -303,12 +325,18 @@ class BspTree
     /// <param name="facesBehind"></param>
     /// <param name="splitFaces"></param>
     void splitFacesByPlane(List<Face> faceList, Plane splittingPlane,
-           List<Face> facesOnPlane, List<Face> facesInFront, List<Face> facesBehind)
+           out List<Face> facesOnPlane, out List<Face> facesInFront, out List<Face> facesBehind)
     {
+        facesOnPlane = new List<Face>();
+        facesInFront = new List<Face>();
+        facesBehind = new List<Face>();
+
         foreach (Face face in faceList)
         {
             Face backFace, frontFace;
             var planeSide = splitFaceByPlane(face, splittingPlane, out backFace, out frontFace);
+
+            Debug.LogFormat("Split face by plane:{0} -> {1}, front:{2}, back:{3}", splittingPlane, planeSide, frontFace != null, backFace != null);
 
             switch (planeSide)
             {
