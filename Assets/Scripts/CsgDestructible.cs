@@ -11,7 +11,6 @@ public class CsgDestructible : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        
     }
 
     // Update is called once per frame
@@ -117,7 +116,6 @@ class BspTree
         var faceList = buildFaceListFromMesh(mesh, localToWorldTransform);
 
         var rootNodeIndex = createNodeFromFaceList_Recursive(faceList);
-        Debug.Assert(rootNodeIndex == 0, "The root node must have zero index!");
 
         debugPrint();
     }
@@ -138,78 +136,55 @@ class BspTree
         Debug.LogFormat("{0} nodes, {0} planes", nodes.Count, planes.Count);
     }
 
-    private List<Triangle> buildTriangleListFromMesh(Mesh mesh)
-    {
-        int[] triangles = mesh.triangles;
-        Vector3[] vertices = mesh.vertices;
-
-        var triangleList = new List<Triangle>();
-
-        var numTriangles =  triangles.Length / 3;
-        for(int triangleIndex = 0; triangleIndex < numTriangles; triangleIndex++)
-        {
-            var i0 = triangles[triangleIndex+0];
-            var i1 = triangles[triangleIndex+1];
-            var i2 = triangles[triangleIndex+2];
-
-            var v0 = vertices[i0];
-            var v1 = vertices[i1];
-            var v2 = vertices[i2];
-
-            var newTriangle = new Triangle();
-
-            newTriangle.pointA = v0;
-            newTriangle.pointB = v1;
-            newTriangle.pointC = v2;
-
-            triangleList.Add(newTriangle);
-        }
-
-        return triangleList;
-    }
-
     private List<Face> buildFaceListFromMesh(Mesh mesh, Transform localToWorldTransform)
     {
         int[] triangles = mesh.triangles;
         Vector3[] vertices = mesh.vertices;
 
         //
-        var numVertices = triangles.Length / 3;
+        var numVertices = vertices.Length;
         Vector3[] transformedVertices = new Vector3[numVertices];
 
         for (int i = 0; i < numVertices; i++)
         {
             transformedVertices[i] = localToWorldTransform.TransformPoint(vertices[i]);
-            Debug.LogFormat("Vertex[{0}]: {1}", i, transformedVertices[i]);
         }
 
         //
         var faceList = new List<Face>();
 
-        var numTriangles = triangles.Length / 3;
-        for (int triangleIndex = 0; triangleIndex < numTriangles; triangleIndex++)
+        var numTriangles = triangles.Length;
+        for (int triangleIndex = 0; triangleIndex < numTriangles; triangleIndex+=3)
         {
             var i0 = triangles[triangleIndex + 0];
             var i1 = triangles[triangleIndex + 1];
             var i2 = triangles[triangleIndex + 2];
             //AAA
-            var v0 = vertices[i0];
-            var v1 = vertices[i1];
-            var v2 = vertices[i2];
+            var v0 = transformedVertices[i0];
+            var v1 = transformedVertices[i1];
+            var v2 = transformedVertices[i2];
 
             //
             var newFace = new Face();
 
-            var reservedCount = 8;  // to reduce (re-)allocations
-            newFace.vertices = new List<Vector3>(reservedCount);
+            //var reservedCount = 8;  // to reduce (re-)allocations
+            newFace.vertices = new List<Vector3>();
             newFace.vertices.Add(v0);
             newFace.vertices.Add(v1);
             newFace.vertices.Add(v2);
 
             faceList.Add(newFace);
         }
+        Debug.Log("ОБход созданного листа face");
+        var temp_count = 0;
+        foreach (Face tempFace in faceList)
+        {
+            Debug.Log(temp_count);
+            Debug.LogFormat("Текущий FACE имеет точки: {0} {1} {2}", tempFace.vertices[0], tempFace.vertices[1], tempFace.vertices[2]);
+            temp_count += 1;
+        }
 
-        Debug.LogFormat("Created {0} faces.", numTriangles);
+        Debug.LogFormat("Created {0} faces.", faceList.Count);
 
         return faceList;
     }
@@ -217,8 +192,7 @@ class BspTree
     private int createNodeFromFaceList_Recursive(List<Face> faceList)
     {
         int splittingPlaneIndex = pickSplittingPlane(faceList);
-
-        Face splittingFace = faceList[splittingPlaneIndex];
+        Face splittingFace = faceList[0];
         Plane splittingPlane = createPlaneFromFace(splittingFace);
         Debug.LogFormat("createNode: plane:{0} = {1}", splittingPlaneIndex, splittingPlane);
 
@@ -234,14 +208,17 @@ class BspTree
         
         nodes[newNodeIndex].planeIndex = splittingPlaneIndex;
         nodes[newNodeIndex].faces = facesOnPlane;
+        Debug.LogFormat("Count facesInFront:{0}", facesInFront.Count);
 
+        Debug.LogFormat("Count facesBehind:{0}", facesBehind.Count);
         //
-        if(facesInFront.Count == 0)
+        if (facesInFront.Count == 0)
         {
             nodes[newNodeIndex].frontChild = EMPTY_LEAF_INDEX;
         }
         else
         {
+            
             nodes[newNodeIndex].frontChild = createNodeFromFaceList_Recursive(facesInFront);
         }
 
@@ -270,45 +247,38 @@ class BspTree
 
         var newPlane = createPlaneFromFace(faceList.First());
         planes.Add(newPlane);
-
         return newPlaneIndex;
     }
 
     private Plane createPlaneFromFace(Face face)
     {
         var numVertices = face.vertices.Count;
-        //
         var faceCenter = Vector3.zero;
         foreach (Vector3 vertex in face.vertices)
         {
             faceCenter += vertex;
         }
         faceCenter /= numVertices;
-
         //
         var planeNormal = Vector3.zero;
-
         var previousVertex = face.vertices[numVertices - 1];
         for (int i = 0; i < numVertices; i++)
         {
             var currentVertex = face.vertices[i];
- Debug.LogWarningFormat("Vertx[{0}]: {1}", i, currentVertex);
             var relV0 = previousVertex - faceCenter;
             var relV1 = currentVertex - faceCenter;
-
             planeNormal += Vector3.Cross(relV0, relV1);
+            previousVertex = currentVertex;
         }
 
         planeNormal = planeNormal.normalized;
 
         var plane = new Plane(planeNormal, faceCenter);
-        Debug.LogWarningFormat("Plane:{0}", plane);
 
         for (int i = 0; i < numVertices; i++)
         {
             var currentVertex = face.vertices[i];
             var pointRelation = classifyPoint(currentVertex, plane, CLIP_EPSILON);
-            Debug.Assert(pointRelation == EPlaneSide.On);
         }
 
         //
@@ -335,8 +305,6 @@ class BspTree
         {
             Face backFace, frontFace;
             var planeSide = splitFaceByPlane(face, splittingPlane, out backFace, out frontFace);
-
-            Debug.LogFormat("Split face by plane:{0} -> {1}, front:{2}, back:{3}", splittingPlane, planeSide, frontFace != null, backFace != null);
 
             switch (planeSide)
             {
