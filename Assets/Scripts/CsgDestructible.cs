@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -32,6 +33,15 @@ public class CsgDestructible : MonoBehaviour
             //    StartCoroutine(SphereIndicator(hit.point));
             //}
         }
+
+        if (Input.GetKeyDown(KeyCode.G))
+        {
+            buildBspTreeIfNeeded();
+
+            performCsgOperation();
+
+            updateTriangleMesh();
+        }
     }
 
     private void buildBspTreeIfNeeded()
@@ -44,6 +54,20 @@ public class CsgDestructible : MonoBehaviour
 
     private void performCsgOperation()
     {
+        var mesh = GetComponent<MeshFilter>().mesh;
+
+        //
+        var subtractedMesh = mesh;
+
+        var subtractedBspTree = new BspTree();
+
+        var uniformScalingFactor = 30.0f;
+        var subtractedMeshTransform = Matrix4x4.Scale(new Vector3(uniformScalingFactor, uniformScalingFactor, uniformScalingFactor));
+ 
+        subtractedBspTree.buildFromMesh(subtractedMesh, subtractedMeshTransform, true);
+
+        //
+        bspTree.mergeSubtract(subtractedBspTree);
     }
 
     private void updateTriangleMesh()
@@ -56,7 +80,7 @@ public class CsgDestructible : MonoBehaviour
 
         bspTree = new BspTree();
 
-        bspTree.buildFromMesh(mesh, transform);
+        bspTree.buildFromMesh(mesh, transform.localToWorldMatrix, false);
     }
 }
 
@@ -104,11 +128,11 @@ class BspTree
         return (d > +epsilon) ? EPlaneSide.Front : (d < -epsilon) ? EPlaneSide.Back : EPlaneSide.On;
     }
 
-    public void buildFromMesh(Mesh mesh, Transform localToWorldTransform)
+    public void buildFromMesh(Mesh mesh, Matrix4x4 vertexTransform, bool reverseFaces)
     {
         //debugPrintMesh(mesh);
 
-        var faceList = buildFaceListFromMesh(mesh, localToWorldTransform);
+        var faceList = buildFaceListFromMesh(mesh, vertexTransform, reverseFaces);
 
         var rootNodeIndex = createNodeFromFaceList_Recursive(faceList);
 
@@ -116,6 +140,9 @@ class BspTree
 
         debugPrint();
     }
+
+
+    #region Debugging
 
     private void debugPrintNodes()
     {
@@ -152,7 +179,10 @@ class BspTree
         Debug.LogFormat("{0} nodes, {0} planes", nodes.Count, planes.Count);
     }
 
-    private List<Face> buildFaceListFromMesh(Mesh mesh, Transform localToWorldTransform)
+    #endregion
+
+    #region BSP tree building
+    private List<Face> buildFaceListFromMesh(Mesh mesh, Matrix4x4 vertexTransform, bool reverseFaces)
     {
         int[] triangles = mesh.triangles;
         Vector3[] vertices = mesh.vertices;
@@ -163,7 +193,7 @@ class BspTree
 
         for (int i = 0; i < numVertices; i++)
         {
-            transformedVertices[i] = localToWorldTransform.TransformPoint(vertices[i]);
+            transformedVertices[i] = vertexTransform.MultiplyPoint(vertices[i]);
         }
 
         //
@@ -172,10 +202,10 @@ class BspTree
         var numTriangles = triangles.Length;
         for (int triangleIndex = 0; triangleIndex < numTriangles; triangleIndex+=3)
         {
-            var i0 = triangles[triangleIndex + 0];
+            var i0 = reverseFaces ? triangles[triangleIndex + 2] : triangles[triangleIndex + 0];
             var i1 = triangles[triangleIndex + 1];
-            var i2 = triangles[triangleIndex + 2];
-            //AAA
+            var i2 = reverseFaces ? triangles[triangleIndex + 0] : triangles[triangleIndex + 2];
+
             var v0 = transformedVertices[i0];
             var v1 = transformedVertices[i1];
             var v2 = transformedVertices[i2];
@@ -505,4 +535,20 @@ class BspTree
 
         return newNodeIndex;
     }
+
+#endregion
+
+    #region BSP tree merging and CSG operations
+
+    public void mergeSubtract(BspTree subtractedBspTree)
+    {
+        throw new NotImplementedException();
+    }
+
+    public void mergeSubtractRecursive(BspTree subtractedBspTree)
+    {
+        throw new NotImplementedException();
+    }
+
+    #endregion
 }
