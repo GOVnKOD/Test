@@ -20,11 +20,6 @@ public class CsgDestructible : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.B))
         {
             buildBspTreeIfNeeded();
-
-            performCsgOperation();
-
-            updateTriangleMesh();
-
             //Vector3 point = new Vector3(GetComponent<Camera>().pixelWidth / 2, GetComponent<Camera>().pixelHeight / 2, 0);
             //Ray ray = GetComponent<Camera>().ScreenPointToRay(point);
             //RaycastHit hit;
@@ -88,14 +83,13 @@ class BspTree
 {
     class Node
     {
-        public int planeIndex;
+        public Plane plane;
         public int frontChild;
         public int backChild;
         public List<Face> faces;    /// convex polygons lying on this node's plane
     }
 
     List<Node>  nodes = new List<Node>();
-    List<Plane> planes = new List<Plane>();
 
     static readonly int EMPTY_LEAF_INDEX = -1;  // denotes empty space
     static readonly int SOLID_LEAF_INDEX = -2;
@@ -158,7 +152,7 @@ class BspTree
                 Debug.LogFormat("Вивод FACE[{0}]:{1},{2},{3}",i,face.vertices[0], face.vertices[1],face.vertices[2]);
                 i += 1;
             }
-            Debug.LogFormat("Вивод индекса плоскости",node.planeIndex);
+            Debug.LogFormat("Вивод плоскости",node.plane);
             count++;
         }
     }
@@ -176,7 +170,7 @@ class BspTree
 
     public void debugPrint()
     {
-        Debug.LogFormat("{0} nodes, {0} planes", nodes.Count, planes.Count);
+        Debug.LogFormat("{0} nodes", nodes.Count);
     }
 
     #endregion
@@ -237,10 +231,9 @@ class BspTree
 
     private int createNodeFromFaceList_Recursive(List<Face> faceList)
     {
-        int splittingPlaneIndex = pickSplittingPlane(faceList);
+        Plane splittingPlane = pickSplittingPlane(faceList);
         Face splittingFace = faceList[0];
-        Plane splittingPlane = createPlaneFromFace(splittingFace);
-        Debug.LogFormat("createNode: plane:{0} = {1}", splittingPlaneIndex, splittingPlane);
+        Debug.LogFormat("createNode: plane:{0} = {1}", splittingPlane, splittingPlane);
 
         List<Face> facesOnPlane;
         List<Face> facesInFront;
@@ -252,7 +245,7 @@ class BspTree
         //
         int newNodeIndex = createNewNode();
         
-        nodes[newNodeIndex].planeIndex = splittingPlaneIndex;
+        nodes[newNodeIndex].plane = splittingPlane;
         nodes[newNodeIndex].faces = facesOnPlane;
         Debug.LogFormat("Count facesInFront:{0}", facesInFront.Count);
 
@@ -286,14 +279,11 @@ class BspTree
     /// </summary>
     /// <param name="faceList"></param>
     /// <returns></returns>
-    private int pickSplittingPlane(List<Face> faceList)
+    private Plane pickSplittingPlane(List<Face> faceList)
     {
         // pick the first one. assume that the object is convex.
-        var newPlaneIndex = planes.Count;
-
         var newPlane = createPlaneFromFace(faceList.First());
-        planes.Add(newPlane);
-        return newPlaneIndex;
+        return newPlane;
     }
 
     private Plane createPlaneFromFace(Face face)
