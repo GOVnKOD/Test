@@ -91,10 +91,17 @@ class BspTree
 
     List<Node>  nodes = new List<Node>();
 
+    int rootNodeIndex = 0;
+
     Bounds bounds;
 
     static readonly int EMPTY_LEAF_INDEX = -1;  // denotes empty space
     static readonly int SOLID_LEAF_INDEX = -2;
+
+    static bool isInternalNodeIndex(int nodeIndex)
+    {
+        return nodeIndex >= 0;
+    }
 
     /// <summary>
     /// Represents a convex polygon.
@@ -118,19 +125,13 @@ class BspTree
     static float CLIP_EPSILON = 0.001f;
 
     ///
-    static EPlaneSide ClassifyPoint(Vector3 point, Plane plane, float epsilon)
-    {
-        float d = plane.GetDistanceToPoint(point);
-        return (d > +epsilon) ? EPlaneSide.Front : (d < -epsilon) ? EPlaneSide.Back : EPlaneSide.On;
-    }
-
     public void buildFromMesh(Mesh mesh, Matrix4x4 vertexTransform, bool reverseFaces)
     {
         //debugPrintMesh(mesh);
 
         var faceList = buildFaceListFromMesh(mesh, vertexTransform, reverseFaces);
 
-        var rootNodeIndex = createNodeFromFaceList_Recursive(faceList);
+        rootNodeIndex = createNodeFromFaceList_Recursive(faceList);
 
         Debug.Assert(rootNodeIndex == 0);
 
@@ -509,6 +510,11 @@ class BspTree
                                 : (d < -epsilon) ? EPlaneSide.Back : EPlaneSide.On;
     }
 
+    static EPlaneSide ClassifyPoint(Vector3 point, Plane plane, float epsilon)
+    {
+        float d = plane.GetDistanceToPoint(point);
+        return (d > +epsilon) ? EPlaneSide.Front : (d < -epsilon) ? EPlaneSide.Back : EPlaneSide.On;
+    }
 
     /// NOTE: for consistency (to prevent minor epsilon issues)
     /// the point 'a' must always be in front of the plane, the point 'a' - behind the plane,
@@ -543,15 +549,70 @@ class BspTree
 
     public void mergeSubtract(BspTree subtractedBspTree)
     {
-        mergeSubtractRecursive(0 /*root node*/, subtractedBspTree, 0 /*root node*/);
+        mergeSubtractRecursive(ref rootNodeIndex, subtractedBspTree);
     }
 
-    public void mergeSubtractRecursive(int ourNodeIndex, BspTree subtractedBspTree, int theirNodeIndex)
+    public void mergeSubtractRecursive(
+        ref int ourNodeIndex
+        , BspTree subtractedBspTree//, int theirNodeIndex
+        )
     {
-        Node node = nodes[ourNodeIndex];
+        if(isInternalNodeIndex(ourNodeIndex))
+        {
+            Node node = nodes[ourNodeIndex];
 
-        //
-        //throw new NotImplementedException();
+            mergeSubtractRecursive(ref node.frontChild, subtractedBspTree);
+            mergeSubtractRecursive(ref node.backChild, subtractedBspTree);
+        }
+        else
+        {
+            // This is a leaf node.
+            if(ourNodeIndex == SOLID_LEAF_INDEX)
+            {
+                // This leaf node represents a solid/filled space.
+                ourNodeIndex = copyNodesFromBspTree(subtractedBspTree);
+            }
+            else
+            {
+                // This leaf node represents an empty space.
+
+                // Do nothing.
+            }
+        }
+
+        int copyNodesFromBspTree(BspTree other)
+        {
+            var newNodeIndex = nodes.Count;
+
+            for( int nodeIndex = 0; nodeIndex < other.nodes.Count; nodeIndex++)
+            {
+                var otherNode = other.nodes[nodeIndex];
+
+                var newNode = new Node();
+                newNode.plane = otherNode.plane;
+
+                //
+                newNode.frontChild = otherNode.frontChild;
+                if (isInternalNodeIndex(otherNode.frontChild))
+                {
+                    newNode.frontChild += newNodeIndex;
+                }
+
+                //
+                newNode.backChild = otherNode.backChild;
+                if (isInternalNodeIndex(otherNode.backChild))
+                {
+                    newNode.backChild += newNodeIndex;
+                }
+
+                newNode.faces = otherNode.faces;
+
+                //
+                nodes.Add(newNode);
+            }
+
+            return newNodeIndex;
+        }
     }
 
     #endregion
