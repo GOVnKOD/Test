@@ -20,6 +20,7 @@ public class CsgDestructible : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.B))
         {
             buildBspTreeIfNeeded();
+            bspTree.debugPrintNodes();
             //Vector3 point = new Vector3(GetComponent<Camera>().pixelWidth / 2, GetComponent<Camera>().pixelHeight / 2, 0);
             //Ray ray = GetComponent<Camera>().ScreenPointToRay(point);
             //RaycastHit hit;
@@ -49,7 +50,7 @@ public class CsgDestructible : MonoBehaviour
 
     private void performCsgOperation()
     {
-        var mesh = GameObject.Find("Cube-de").GetComponent<MeshFilter>().mesh;
+        var mesh = GameObject.Find("Cube").GetComponent<MeshFilter>().mesh;
 
         //
         var subtractedMesh = mesh;
@@ -82,7 +83,7 @@ public class CsgDestructible : MonoBehaviour
     private void buildBspTree()
     {
         var mesh = GetComponent<MeshFilter>().mesh;
-
+        
         bspTree = new BspTree();
 
         bspTree.buildFromMesh(mesh, transform.localToWorldMatrix, false);
