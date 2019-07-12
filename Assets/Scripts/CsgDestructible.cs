@@ -49,18 +49,18 @@ public class CsgDestructible : MonoBehaviour
 
     private void performCsgOperation()
     {
-        var mesh = GetComponent<MeshFilter>().mesh;
+        var mesh = GameObject.Find("Cube-de").GetComponent<MeshFilter>().mesh;
 
         //
         var subtractedMesh = mesh;
 
         var subtractedBspTree = new BspTree();
 
-        var uniformScalingFactor = 30.0f;
+        var uniformScalingFactor = 4.0f;
         var subtractedMeshTransform = Matrix4x4.Scale(new Vector3(uniformScalingFactor, uniformScalingFactor, uniformScalingFactor));
  
         subtractedBspTree.buildFromMesh(subtractedMesh, subtractedMeshTransform, true);
-
+        subtractedBspTree.debugPrintNodes();
         //
         bspTree.mergeSubtract(subtractedBspTree);
     }
@@ -151,7 +151,7 @@ class BspTree
 
     #region Debugging
 
-    private void debugPrintNodes()
+    public void debugPrintNodes()
     {
         var count = 0;
         foreach(Node node in nodes)
@@ -431,7 +431,7 @@ class BspTree
             frontFace_ = face;
             return (EPlaneSide)faceStatus;
         }
-        Debug.DebugBreak();//AAA
+
         // Straddles the splitting plane - we must clip.
 
         //mxBIBREF("'float-Time Collision Detection' by Christer Ericson (2005), 8.3.4 Splitting Polygons Against a Plane, PP.369-373");
@@ -502,10 +502,10 @@ class BspTree
 
         //
         frontFace_ = new Face();
-        frontFace_.vertices = frontVerts.ToList();
+        frontFace_.vertices = frontVerts.Take(numFront).ToList();
 
         backFace_ = new Face();
-        backFace_.vertices = backVerts.ToList();
+        backFace_.vertices = backVerts.Take(numBack).ToList();
 
         Debug.Assert(faceStatus == (int)EPlaneSide.Split);
         return EPlaneSide.Split;
@@ -567,9 +567,17 @@ class BspTree
         , BspTree subtractedBspTree//, int theirNodeIndex
         )
     {
+#if false//AAA
+        foreach(Node node in nodes)
+        {
+            node.faces = clipFacesWithBspTree(node.faces, subtractedBspTree);
+        }
+#else
         if(isInternalNodeIndex(ourNodeIndex))
         {
             Node node = nodes[ourNodeIndex];
+
+            node.faces = clipFacesWithBspTree(node.faces, subtractedBspTree);
 
             mergeSubtractRecursive(ref node.frontChild, subtractedBspTree);
             mergeSubtractRecursive(ref node.backChild, subtractedBspTree);
@@ -577,7 +585,7 @@ class BspTree
         else
         {
             // This is a leaf node.
-            if(ourNodeIndex == SOLID_LEAF_INDEX)
+            if (ourNodeIndex == SOLID_LEAF_INDEX)
             {
                 // This leaf node represents a solid/filled space.
                 ourNodeIndex = copyNodesFromBspTree(subtractedBspTree);
@@ -589,7 +597,7 @@ class BspTree
                 // Do nothing.
             }
         }
-
+#endif
         int copyNodesFromBspTree(BspTree other)
         {
             var newNodeIndex = nodes.Count;
@@ -625,7 +633,57 @@ class BspTree
         }
     }
 
-    #endregion
+    private List<Face> clipFacesWithBspTree(List<Face> faces, BspTree subtractedBspTree)
+    {
+        var clippedFaces = new List<Face>();
+
+        clipFacesWithBspTreeRecursive(faces, clippedFaces, subtractedBspTree, 0 /*root node index*/);
+
+        return clippedFaces;
+    }
+
+    private void clipFacesWithBspTreeRecursive(
+        List<Face> originalFaces
+        , List<Face> clippedFaces   // inout
+        , BspTree subtractedBspTree, int theirNodeIndex
+        )
+    {
+        if (isInternalNodeIndex(theirNodeIndex))
+        {
+            Node splittingNode = subtractedBspTree.nodes[theirNodeIndex];
+            Plane splittingPlane = splittingNode.plane;
+
+            List<Face> facesOnPlane;
+            List<Face> facesInFront;
+            List<Face> facesBehind;
+
+            splitFacesByPlane(originalFaces, splittingPlane,
+                out facesOnPlane, out facesInFront, out facesBehind);
+
+            Debug.LogFormat("theirNodeIndex={0}, plane={1}, front={2}, back={3}, originalFaces={4}, clippedFaces={5}"
+                , theirNodeIndex, splittingPlane, facesInFront.Count, facesBehind.Count, originalFaces.Count, clippedFaces.Count);
+
+            //
+            clipFacesWithBspTreeRecursive(facesInFront, clippedFaces, subtractedBspTree, splittingNode.frontChild);
+
+            clipFacesWithBspTreeRecursive(facesBehind, clippedFaces, subtractedBspTree, splittingNode.backChild);
+
+            clippedFaces.AddRange(facesOnPlane);
+        }
+        else
+        {
+            if(theirNodeIndex == SOLID_LEAF_INDEX)
+            {
+                clippedFaces.AddRange(originalFaces);
+            }
+        }
+    }
+
+#endregion
+
+
+
+
 
     public Mesh generateMesh()
     {
@@ -641,6 +699,8 @@ class BspTree
                 var numVertices = face.vertices.Count;
 
                 var baseVertex = face.vertices[0];
+
+#if false
 
                 var baseVertexIndex = tempVerticesList.Count;
                 tempVerticesList.Add(baseVertex);
@@ -658,6 +718,23 @@ class BspTree
                     tempTrianglesList.Add(baseVertexIndex + i);
                     tempTrianglesList.Add(baseVertexIndex + i + 1);
                 }
+#else
+            
+                for (int i = 1; i < numVertices - 1; i++)
+                {
+                    var v1 = face.vertices[i + 0];
+                    var v2 = face.vertices[i + 1];
+
+                    var baseVertexIndex = tempVerticesList.Count;
+                    tempVerticesList.Add(baseVertex);
+                    tempVerticesList.Add(v1);
+                    tempVerticesList.Add(v2);
+
+                    tempTrianglesList.Add(baseVertexIndex + 0);
+                    tempTrianglesList.Add(baseVertexIndex + 1);
+                    tempTrianglesList.Add(baseVertexIndex + 2);
+                }
+#endif
             }
         }
 
