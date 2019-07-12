@@ -67,6 +67,16 @@ public class CsgDestructible : MonoBehaviour
 
     private void updateTriangleMesh()
     {
+        Mesh mesh = generateMeshFromBSPTree(bspTree);
+        GetComponent<MeshFilter>().mesh = mesh;
+        transform.localScale = new Vector3(1, 1, 1);
+    }
+
+    private Mesh generateMeshFromBSPTree(BspTree bspTree)
+    {
+        Mesh mesh = new Mesh();
+        mesh = bspTree.generateMesh();
+        return mesh;
     }
 
     private void buildBspTree()
@@ -616,4 +626,30 @@ class BspTree
     }
 
     #endregion
+
+    public Mesh generateMesh()
+    {
+        Mesh mesh = new Mesh();
+
+        List<Vector3> tempVerticesList = new List<Vector3>();
+        List<int> tempTrianglesList = new List<int>();
+        var count = 0;
+        foreach(Node node in nodes)
+        {
+           foreach(Face face in node.faces)
+            {
+                foreach(Vector3 vertices in face.vertices)
+                {
+                    tempVerticesList.Add(vertices);
+                    tempTrianglesList.Add(count);
+                    count++;
+                }
+
+            }
+
+        }
+        mesh.vertices = tempVerticesList.ToArray<Vector3>() ;
+        mesh.triangles = tempTrianglesList.ToArray();
+        return mesh;
+    }
 }
