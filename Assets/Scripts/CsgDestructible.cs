@@ -91,6 +91,8 @@ class BspTree
 
     List<Node>  nodes = new List<Node>();
 
+    Bounds bounds;
+
     static readonly int EMPTY_LEAF_INDEX = -1;  // denotes empty space
     static readonly int SOLID_LEAF_INDEX = -2;
 
@@ -157,7 +159,7 @@ class BspTree
         }
     }
 
-    private void debugPrintMesh(Mesh mesh)
+    private static void debugPrintMesh(Mesh mesh)
     {
         var numVertices= mesh.vertices.Length;
         Debug.LogFormat("Mesh has {0} vertices", numVertices);
@@ -185,10 +187,20 @@ class BspTree
         var numVertices = vertices.Length;
         Vector3[] transformedVertices = new Vector3[numVertices];
 
+        //
+        var LARGE_NUMBER = 1e10f;
+        var LARGE_VECTOR = new Vector3(LARGE_NUMBER, LARGE_NUMBER, LARGE_NUMBER);
+        bounds.SetMinMax(LARGE_VECTOR, -LARGE_VECTOR);
+
         for (int i = 0; i < numVertices; i++)
         {
             transformedVertices[i] = vertexTransform.MultiplyPoint(vertices[i]);
+
+            bounds.min = Vector3.Min(bounds.min, transformedVertices[i]);
+            bounds.max = Vector3.Max(bounds.max, transformedVertices[i]);
         }
+
+        Debug.LogFormat("bounds:{0}", bounds);
 
         //
         var faceList = new List<Face>();
@@ -215,16 +227,16 @@ class BspTree
 
             faceList.Add(newFace);
         }
-        Debug.Log("ОБход созданного листа face");
-        var temp_count = 0;
-        foreach (Face tempFace in faceList)
-        {
-            Debug.Log(temp_count);
-            Debug.LogFormat("Текущий FACE имеет точки: {0} {1} {2}", tempFace.vertices[0], tempFace.vertices[1], tempFace.vertices[2]);
-            temp_count += 1;
-        }
+        //Debug.Log("ОБход созданного листа face");
+        //var temp_count = 0;
+        //foreach (Face tempFace in faceList)
+        //{
+        //    Debug.Log(temp_count);
+        //    Debug.LogFormat("Текущий FACE имеет точки: {0} {1} {2}", tempFace.vertices[0], tempFace.vertices[1], tempFace.vertices[2]);
+        //    temp_count += 1;
+        //}
 
-        Debug.LogFormat("Created {0} faces.", faceList.Count);
+        //Debug.LogFormat("Created {0} faces.", faceList.Count);
 
         return faceList;
     }
@@ -233,7 +245,7 @@ class BspTree
     {
         Plane splittingPlane = pickSplittingPlane(faceList);
         Face splittingFace = faceList[0];
-        Debug.LogFormat("createNode: plane:{0} = {1}", splittingPlane, splittingPlane);
+        //Debug.LogFormat("createNode: plane:{0} = {1}", splittingPlane, splittingPlane);
 
         List<Face> facesOnPlane;
         List<Face> facesInFront;
@@ -247,9 +259,8 @@ class BspTree
         
         nodes[newNodeIndex].plane = splittingPlane;
         nodes[newNodeIndex].faces = facesOnPlane;
-        Debug.LogFormat("Count facesInFront:{0}", facesInFront.Count);
-
-        Debug.LogFormat("Count facesBehind:{0}", facesBehind.Count);
+        //Debug.LogFormat("Count facesInFront:{0}", facesInFront.Count);
+        //Debug.LogFormat("Count facesBehind:{0}", facesBehind.Count);
         //
         if (facesInFront.Count == 0)
         {
@@ -532,12 +543,15 @@ class BspTree
 
     public void mergeSubtract(BspTree subtractedBspTree)
     {
-        throw new NotImplementedException();
+        mergeSubtractRecursive(0 /*root node*/, subtractedBspTree, 0 /*root node*/);
     }
 
-    public void mergeSubtractRecursive(BspTree subtractedBspTree)
+    public void mergeSubtractRecursive(int ourNodeIndex, BspTree subtractedBspTree, int theirNodeIndex)
     {
-        throw new NotImplementedException();
+        Node node = nodes[ourNodeIndex];
+
+        //
+        //throw new NotImplementedException();
     }
 
     #endregion
