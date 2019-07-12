@@ -633,21 +633,34 @@ class BspTree
 
         List<Vector3> tempVerticesList = new List<Vector3>();
         List<int> tempTrianglesList = new List<int>();
-        var count = 0;
-        foreach(Node node in nodes)
+
+        foreach (Node node in nodes)
         {
-           foreach(Face face in node.faces)
+            foreach (Face face in node.faces)
             {
-                foreach(Vector3 vertices in face.vertices)
+                var numVertices = face.vertices.Count;
+
+                var baseVertex = face.vertices[0];
+
+                var baseVertexIndex = tempVerticesList.Count;
+                tempVerticesList.Add(baseVertex);
+
+                for (int i = 1; i < numVertices - 1; i++)
                 {
-                    tempVerticesList.Add(vertices);
-                    tempTrianglesList.Add(count);
-                    count++;
+                    var v1 = face.vertices[i + 0];
+                    var v2 = face.vertices[i + 1];
+
+                    tempVerticesList.Add(v1);
+                    tempVerticesList.Add(v2);
+
+                    //
+                    tempTrianglesList.Add(baseVertexIndex);
+                    tempTrianglesList.Add(baseVertexIndex + i);
+                    tempTrianglesList.Add(baseVertexIndex + i + 1);
                 }
-
             }
-
         }
+
         mesh.vertices = tempVerticesList.ToArray<Vector3>() ;
         mesh.triangles = tempTrianglesList.ToArray();
         return mesh;
